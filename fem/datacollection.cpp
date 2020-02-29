@@ -166,7 +166,7 @@ void DataCollection::SetCompression(bool comp)
 {
    compression = comp;
 #ifndef MFEM_USE_GZSTREAM
-   MFEM_ASSERT(!compression, "GZStream not enabled in MFEM build.");
+   MFEM_VERIFY(!compression, "GZStream not enabled in MFEM build.");
 #endif
 }
 
