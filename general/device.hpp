@@ -57,9 +57,9 @@ struct Backend
       /** @brief [host] CEED CPU backend. GPU backends can still be used, but
           with expensive memory transfers. Enabled when MFEM_USE_CEED = YES. */
       CEED_CPU  = 1 << 10,
-      /** @brief [device] CEED CUDA backend working in colaboration with the
-          CUDA backend. Enabled when MFEM_USE_CEED = YES and
-          MFEM_USE_CUDA = YES. */
+      /** @brief [device] CEED CUDA backend working together with the CUDA
+          backend. Enabled when MFEM_USE_CEED = YES and MFEM_USE_CUDA = YES.
+          NOTE: The current default libCEED GPU backend is non-deterministic! */
       CEED_CUDA = 1 << 11,
       /** @brief [device] Debug backend: host memory is READ/WRITE protected
           while a device is in use. It allows to test the "device" code-path
@@ -195,8 +195,8 @@ public:
          Backend::Id enumeration constant with '_' replaced by '-', e.g. the
          string name of 'RAJA_CPU' is 'raja-cpu'.
        * The 'cpu' backend is always enabled with lowest priority.
-       * The current backend priority from highest to lowest is: 'ceed-cuda',
-         'occa-cuda', 'raja-cuda', 'cuda', 'hip', 'debug',
+       * The current backend priority from highest to lowest is:
+         'ceed-cuda', 'occa-cuda', 'raja-cuda', 'cuda', 'hip', 'debug',
          'occa-omp', 'raja-omp', 'omp',
          'ceed-cpu', 'occa-cpu', 'raja-cpu', 'cpu'.
        * Multiple backends can be configured at the same time.

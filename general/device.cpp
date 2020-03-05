@@ -496,6 +496,7 @@ void Device::Setup(const int device)
    {
       if (!device_option)
       {
+         // NOTE: libCEED's /gpu/cuda/gen backend is non-deterministic!
          CeedDeviceSetup("/gpu/cuda/gen");
       }
       else
