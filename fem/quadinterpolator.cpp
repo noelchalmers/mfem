@@ -23,6 +23,7 @@ QuadratureInterpolator::QuadratureInterpolator(const FiniteElementSpace &fes,
    fespace = &fes;
    qspace = NULL;
    IntRule = &ir;
+   q_layout = QVectorLayout::byNODES;
    use_tensor_products = true; // not implemented yet (not used)
 
    if (fespace->GetNE() == 0) { return; }
@@ -37,6 +38,7 @@ QuadratureInterpolator::QuadratureInterpolator(const FiniteElementSpace &fes,
    fespace = &fes;
    qspace = &qs;
    IntRule = NULL;
+   q_layout = QVectorLayout::byNODES;
    use_tensor_products = true; // not implemented yet (not used)
 
    if (fespace->GetNE() == 0) { return; }
@@ -126,7 +128,7 @@ void QuadratureInterpolator::Eval2D(
             {
                // The check (VDIM == 2) should eliminate this block when VDIM is
                // known at compile time and (VDIM != 2).
-               det(q,e) = D[0]*D[3] - D[1]*D[2];
+               det(q,e) = kernels::Det<2>(D);
             }
          }
       }
@@ -217,9 +219,7 @@ void QuadratureInterpolator::Eval3D(
             {
                // The check (VDIM == 3) should eliminate this block when VDIM is
                // known at compile time and (VDIM != 3).
-               det(q,e) = D[0] * (D[4] * D[8] - D[5] * D[7]) +
-                          D[3] * (D[2] * D[7] - D[1] * D[8]) +
-                          D[6] * (D[1] * D[5] - D[2] * D[4]);
+               det(q,e) = kernels::Det<3>(D);
             }
          }
       }
@@ -230,6 +230,19 @@ void QuadratureInterpolator::Mult(
    const Vector &e_vec, unsigned eval_flags,
    Vector &q_val, Vector &q_der, Vector &q_det) const
 {
+   if (q_layout == QVectorLayout::byVDIM)
+   {
+      if (eval_flags & VALUES) { Values(e_vec, q_val); }
+      if (eval_flags & DERIVATIVES) { Derivatives(e_vec, q_der); }
+      if (eval_flags & DETERMINANTS)
+      {
+         MFEM_ABORT("evaluation of determinants with 'byVDIM' output layout"
+                    " is not implemented yet!");
+      }
+      return;
+   }
+
+   // q_layout == QVectorLayout::byNODES
    const int ne = fespace->GetNE();
    if (ne == 0) { return; }
    const int vdim = fespace->GetVDim();
@@ -635,6 +648,14 @@ static void D2QValues(const FiniteElementSpace &fes,
 
 void QuadratureInterpolator::Values(const Vector &e_vec, Vector &q_val) const
 {
+   if (q_layout == QVectorLayout::byNODES)
+   {
+      Vector empty;
+      Mult(e_vec, VALUES, q_val, empty, empty);
+      return;
+   }
+
+   // q_layout == QVectorLayout::byVDIM
    if (fespace->GetNE() == 0) { return; }
    const IntegrationRule &ir = *IntRule;
    const DofToQuad::Mode mode = DofToQuad::TENSOR;
@@ -1263,6 +1284,14 @@ static void D2QPhysGrad(const FiniteElementSpace &fes,
 void QuadratureInterpolator::Derivatives(const Vector &e_vec,
                                          Vector &q_der) const
 {
+   if (q_layout == QVectorLayout::byNODES)
+   {
+      Vector empty;
+      Mult(e_vec, DERIVATIVES, empty, q_der, empty);
+      return;
+   }
+
+   // q_layout == QVectorLayout::byVDIM
    if (fespace->GetNE() == 0) { return; }
    const IntegrationRule &ir = *IntRule;
    const DofToQuad::Mode mode = DofToQuad::TENSOR;
@@ -1273,7 +1302,14 @@ void QuadratureInterpolator::Derivatives(const Vector &e_vec,
 void QuadratureInterpolator::PhysDerivatives(const Vector &e_vec,
                                              Vector &q_der) const
 {
+   if (q_layout == QVectorLayout::byNODES)
+   {
+      MFEM_ABORT("evaluation of physical derivatives with 'byNODES' output"
+                 " layout is not implemented yet!");
+      return;
+   }
 
+   // q_layout == QVectorLayout::byVDIM
    Mesh *mesh = fespace->GetMesh();
    if (mesh->GetNE() == 0) { return; }
    // mesh->DeleteGeometricFactors(); // This should be done outside

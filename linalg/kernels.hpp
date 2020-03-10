@@ -119,7 +119,9 @@ void Symmetrize(const int size, T *data)
 /// Compute the determinant of a square matrix of size dim with given @a data.
 template<int dim, typename T>
 MFEM_HOST_DEVICE inline T Det(const T *data)
-{ return TDet<T>(ColumnMajorLayout2D<dim,dim>(), data); }
+{
+   return TDet<T>(ColumnMajorLayout2D<dim,dim>(), data);
+}
 
 /** @brief Return the inverse a matrix with given @a size and @a data into the
     matrix with data @a inv_data. */
@@ -129,7 +131,7 @@ void CalcInverse(const T *data, T *inv_data)
 {
    typedef ColumnMajorLayout2D<dim,dim> layout_t;
    const T det = TAdjDet<T>(layout_t(), data, layout_t(), inv_data);
-   TAssign<AssignOp::Div>(layout_t(), inv_data, det);
+   TAssign<AssignOp::Mult>(layout_t(), inv_data, static_cast<T>(1.0)/det);
 }
 
 /** @brief Compute C = A + alpha*B, where the matrices A, B and C are of size @a
