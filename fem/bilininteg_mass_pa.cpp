@@ -1118,6 +1118,278 @@ static void SmemPAMassApply3D(const int NE,
    });
 }
 
+  using policy1_HOST = RAJA::LPolicy<RAJA::HOST, RAJA::loop_exec>;
+#ifdef RAJA_ENABLE_CUDA
+  using policy1x_DEVICE = RAJA::LPolicy<RAJA::DEVICE, RAJA::cuda_block_x_direct>;
+  using policy1y_DEVICE = RAJA::LPolicy<RAJA::DEVICE, RAJA::cuda_block_y_direct>;
+#else
+  using policy1_DEVICE = RAJA::LPolicy<RAJA::DEVICE, RAJA::loop_exec>;
+#endif
+  using outer0 = camp::list<policy1_HOST, policy1x_DEVICE>;
+  using outer1 = camp::list<policy1_HOST, policy1y_DEVICE>;
+
+  using policy2_HOST = RAJA::LPolicy<RAJA::HOST, RAJA::loop_exec>;
+#ifdef RAJA_ENABLE_CUDA
+  using policy2x_DEVICE = RAJA::LPolicy<RAJA::DEVICE, RAJA::cuda_thread_x_loop>;
+  using policy2y_DEVICE = RAJA::LPolicy<RAJA::DEVICE, RAJA::cuda_thread_y_loop>;
+  using policy2z_DEVICE = RAJA::LPolicy<RAJA::DEVICE, RAJA::cuda_thread_z_loop>;
+#else
+  using policy2_DEVICE = RAJA::LPolicy<RAJA::DEVICE, RAJA::loop_exec>;
+#endif
+  using team0 = camp::list<policy2_HOST, policy2x_DEVICE>;
+  using team1 = camp::list<policy2_HOST, policy2y_DEVICE>;
+  using team2 = camp::list<policy2_HOST, policy2z_DEVICE>;
+
+
+template<int T_D1D = 0, int T_Q1D = 0>
+static void RajaSmemPAMassApply3D(const int NE,
+                              const Array<double> &b_,
+                              const Array<double> &bt_,
+                              const Vector &d_,
+                              const Vector &x_,
+                              Vector &y_,
+                              const int d1d = 0,
+                              const int q1d = 0)
+{
+   const int D1D = T_D1D ? T_D1D : d1d;
+   const int Q1D = T_Q1D ? T_Q1D : q1d;
+   constexpr int M1Q = T_Q1D ? T_Q1D : MAX_Q1D;
+   constexpr int M1D = T_D1D ? T_D1D : MAX_D1D;
+   MFEM_VERIFY(D1D <= M1D, "");
+   MFEM_VERIFY(Q1D <= M1Q, "");
+   auto b = Reshape(b_.Read(), Q1D, D1D);
+   auto d = Reshape(d_.Read(), Q1D, Q1D, Q1D, NE);
+   auto x = Reshape(x_.Read(), D1D, D1D, D1D, NE);
+   auto y = Reshape(y_.ReadWrite(), D1D, D1D, D1D, NE);
+
+   //Run time option
+   RAJA::ExecPlace select_cpu_or_gpu;
+   if(Device::Allows(Backend::CUDA_MASK))
+   {
+     select_cpu_or_gpu = RAJA::ExecPlace::DEVICE;
+   }else
+   {
+     select_cpu_or_gpu = RAJA::ExecPlace::HOST;
+   }
+
+   RAJA::launch(select_cpu_or_gpu,
+   camp::make_tuple(RAJA::Resources<RAJA::HOST>(RAJA::Threads(NE)),
+                    RAJA::Resources<RAJA::DEVICE>(RAJA::Teams(NE),
+                                                  RAJA::Threads(Q1D, Q1D, Q1D))),
+   [=] RAJA_HOST_DEVICE (RAJA::LaunchContext ctx) {
+
+   RAJA::loop<outer0>(ctx, RAJA::RangeSegment(0, NE), [&](int e) {
+
+      const int D1D = T_D1D ? T_D1D : d1d;
+      const int Q1D = T_Q1D ? T_Q1D : q1d;
+      constexpr int MQ1 = T_Q1D ? T_Q1D : MAX_Q1D;
+      constexpr int MD1 = T_D1D ? T_D1D : MAX_D1D;
+      constexpr int MDQ = (MQ1 > MD1) ? MQ1 : MD1;
+      MFEM_SHARED double sDQ[MQ1*MD1];
+      double (*B)[MD1] = (double (*)[MD1]) sDQ;
+      double (*Bt)[MQ1] = (double (*)[MQ1]) sDQ;
+      MFEM_SHARED double sm0[MDQ*MDQ*MDQ];
+      MFEM_SHARED double sm1[MDQ*MDQ*MDQ];
+      double (*X)[MD1][MD1]   = (double (*)[MD1][MD1]) sm0;
+      double (*DDQ)[MD1][MQ1] = (double (*)[MD1][MQ1]) sm1;
+      double (*DQQ)[MQ1][MQ1] = (double (*)[MQ1][MQ1]) sm0;
+      double (*QQQ)[MQ1][MQ1] = (double (*)[MQ1][MQ1]) sm1;
+      double (*QQD)[MQ1][MD1] = (double (*)[MQ1][MD1]) sm0;
+      double (*QDD)[MD1][MD1] = (double (*)[MD1][MD1]) sm1;
+
+      RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, D1D), [&](int dy) { 
+         RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, D1D), [&](int dx) { 
+
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; ++dz)
+            {
+               X[dz][dy][dx] = x(dx,dy,dz,e);
+            }
+           });
+         
+        RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dx) {  
+            B[dx][dy] = b(dx,dy);
+          });
+        });
+
+      MFEM_SYNC_THREAD;
+      RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, D1D), [&](int dy) {   
+         RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qx) {   
+
+            double u[D1D];
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; dz++)
+            {
+               u[dz] = 0;
+            }
+            MFEM_UNROLL(MD1)
+            for (int dx = 0; dx < D1D; ++dx)
+            {
+               MFEM_UNROLL(MD1)
+               for (int dz = 0; dz < D1D; ++dz)
+               {
+                  u[dz] += X[dz][dy][dx] * B[qx][dx];
+               }
+            }
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; ++dz)
+            {
+               DDQ[dz][dy][qx] = u[dz];
+            }
+           });
+        });
+
+      MFEM_SYNC_THREAD;
+        
+      RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qy) {
+        RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qx) { 
+
+            double u[D1D];
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; dz++)
+            {
+               u[dz] = 0;
+            }
+            MFEM_UNROLL(MD1)
+            for (int dy = 0; dy < D1D; ++dy)
+            {
+               MFEM_UNROLL(MD1)
+               for (int dz = 0; dz < D1D; dz++)
+               {
+                  u[dz] += DDQ[dz][dy][qx] * B[qy][dy];
+               }
+            }
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; dz++)
+            {
+               DQQ[dz][qy][qx] = u[dz];
+            }
+          });
+        });
+
+     MFEM_SYNC_THREAD;
+     RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qy) { 
+         RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qx) { 
+
+            double u[Q1D];
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; qz++)
+            {
+               u[qz] = 0;
+            }
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; ++dz)
+            {
+               MFEM_UNROLL(MQ1)
+               for (int qz = 0; qz < Q1D; qz++)
+               {
+                  u[qz] += DQQ[dz][qy][qx] * B[qz][dz];
+               }
+            }
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; qz++)
+            {
+               QQQ[qz][qy][qx] = u[qz] * d(qx,qy,qz,e);
+            }
+           });
+       });
+      MFEM_SYNC_THREAD;
+
+     RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, D1D), [&](int d) {
+         RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int q) {
+             Bt[d][q] = b(q,d);
+           });
+       });
+      MFEM_SYNC_THREAD;
+
+      RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qy) { 
+          RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, D1D), [&](int dx) { 
+
+            double u[Q1D];
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; ++qz)
+            {
+               u[qz] = 0;
+            }
+            MFEM_UNROLL(MQ1)
+            for (int qx = 0; qx < Q1D; ++qx)
+            {
+               MFEM_UNROLL(MQ1)
+               for (int qz = 0; qz < Q1D; ++qz)
+               {
+                  u[qz] += QQQ[qz][qy][qx] * Bt[dx][qx];
+               }
+            }
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; ++qz)
+            {
+               QQD[qz][qy][dx] = u[qz];
+            }
+            });
+        });
+      MFEM_SYNC_THREAD;
+
+     RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, D1D), [&](int dy) { 
+           RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, D1D), [&](int dx) { 
+
+            double u[Q1D];
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; ++qz)
+            {
+               u[qz] = 0;
+            }
+            MFEM_UNROLL(MQ1)
+            for (int qy = 0; qy < Q1D; ++qy)
+            {
+               MFEM_UNROLL(MQ1)
+               for (int qz = 0; qz < Q1D; ++qz)
+               {
+                  u[qz] += QQD[qz][qy][dx] * Bt[dy][qy];
+               }
+            }
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; ++qz)
+            {
+               QDD[qz][dy][dx] = u[qz];
+            }
+             });
+       });
+      MFEM_SYNC_THREAD;
+
+      RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, D1D), [&](int dy) {  
+        RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, D1D), [&](int dx) {  
+            double u[D1D];
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; ++dz)
+            {
+               u[dz] = 0;
+            }
+            MFEM_UNROLL(MQ1)
+            for (int qz = 0; qz < Q1D; ++qz)
+            {
+               MFEM_UNROLL(MD1)
+               for (int dz = 0; dz < D1D; ++dz)
+               {
+                  u[dz] += QDD[qz][dy][dx] * Bt[dz][qz];
+               }
+            }
+            MFEM_UNROLL(MD1)
+            for (int dz = 0; dz < D1D; ++dz)
+            {
+               y(dx,dy,dz,e) += u[dz];
+            }
+          });
+        });
+
+     });//element loop
+
+   }); //launch 
+
+
+}
+
+
+
 static void PAMassApply(const int dim,
                         const int D1D,
                         const int Q1D,
@@ -1165,6 +1437,33 @@ static void PAMassApply(const int dim,
    }
    else if (dim == 3)
    {
+
+     if (Device::Allows(Backend::CUDA_MASK & ~Backend::CUDA) ||
+         Device::Allows(Backend::CPU_MASK & ~Backend::CPU))
+     {
+
+      switch (id)
+      {
+         case 0x23: return RajaSmemPAMassApply3D<2,3>(NE,B,Bt,D,X,Y);
+         case 0x24: return RajaSmemPAMassApply3D<2,4>(NE,B,Bt,D,X,Y);
+         case 0x34: return RajaSmemPAMassApply3D<3,4>(NE,B,Bt,D,X,Y);
+         case 0x36: return RajaSmemPAMassApply3D<3,6>(NE,B,Bt,D,X,Y);
+         case 0x45: return RajaSmemPAMassApply3D<4,5>(NE,B,Bt,D,X,Y);
+         case 0x46: return RajaSmemPAMassApply3D<4,6>(NE,B,Bt,D,X,Y);
+         case 0x48: return RajaSmemPAMassApply3D<4,8>(NE,B,Bt,D,X,Y);
+         case 0x56: return RajaSmemPAMassApply3D<5,6>(NE,B,Bt,D,X,Y);
+         case 0x58: return RajaSmemPAMassApply3D<5,8>(NE,B,Bt,D,X,Y);
+         case 0x67: return RajaSmemPAMassApply3D<6,7>(NE,B,Bt,D,X,Y);
+         case 0x78: return RajaSmemPAMassApply3D<7,8>(NE,B,Bt,D,X,Y);
+         case 0x89: return RajaSmemPAMassApply3D<8,9>(NE,B,Bt,D,X,Y);
+         case 0x9A: return RajaSmemPAMassApply3D<9,10>(NE,B,Bt,D,X,Y);
+         default: mfem_error("RAJA case not supported \n");
+      }
+
+     }
+     else
+     {
+
       switch (id)
       {
          case 0x23: return SmemPAMassApply3D<2,3>(NE,B,Bt,D,X,Y);
@@ -1182,6 +1481,8 @@ static void PAMassApply(const int dim,
          case 0x9A: return SmemPAMassApply3D<9,10>(NE,B,Bt,D,X,Y);
          default:   return PAMassApply3D(NE,B,Bt,D,X,Y,D1D,Q1D);
       }
+
+     }
    }
    mfem::out << "Unknown kernel 0x" << std::hex << id << std::endl;
    MFEM_ABORT("Unknown kernel.");
