@@ -1175,7 +1175,7 @@ static void RajaSmemPAMassApply3D(const int NE,
    RAJA::launch(select_cpu_or_gpu,
    camp::make_tuple(RAJA::Resources<RAJA::HOST>(RAJA::Threads(NE)),
                     RAJA::Resources<RAJA::DEVICE>(RAJA::Teams(NE),
-                                                  RAJA::Threads(Q1D, Q1D, Q1D))),
+                                                  RAJA::Threads(Q1D, Q1D))),
    [=] RAJA_HOST_DEVICE (RAJA::LaunchContext ctx) {
 
    RAJA::loop<outer0>(ctx, RAJA::RangeSegment(0, NE), [&](int e) {
