@@ -1125,8 +1125,8 @@ static void SmemPAMassApply3D(const int NE,
 #else
   using policy1_DEVICE = RAJA::LPolicy<RAJA::DEVICE, RAJA::loop_exec>;
 #endif
-  using outer0 = camp::list<policy1_HOST, policy1x_DEVICE>;
-  using outer1 = camp::list<policy1_HOST, policy1y_DEVICE>;
+  using outer0 = camp::list<policy1x_DEVICE>;
+  using outer1 = camp::list<policy1y_DEVICE>;
 
   using policy2_HOST = RAJA::LPolicy<RAJA::HOST, RAJA::loop_exec>;
 #ifdef RAJA_ENABLE_CUDA
@@ -1136,9 +1136,9 @@ static void SmemPAMassApply3D(const int NE,
 #else
   using policy2_DEVICE = RAJA::LPolicy<RAJA::DEVICE, RAJA::loop_exec>;
 #endif
-  using team0 = camp::list<policy2_HOST, policy2x_DEVICE>;
-  using team1 = camp::list<policy2_HOST, policy2y_DEVICE>;
-  using team2 = camp::list<policy2_HOST, policy2z_DEVICE>;
+  using team0 = camp::list<policy2x_DEVICE>;
+  using team1 = camp::list<policy2y_DEVICE>;
+  using team2 = camp::list<policy2z_DEVICE>;
 
 
 template<int T_D1D = 0, int T_Q1D = 0>
@@ -1163,18 +1163,8 @@ static void RajaSmemPAMassApply3D(const int NE,
    auto y = Reshape(y_.ReadWrite(), D1D, D1D, D1D, NE);
 
    //Run time option
-   RAJA::ExecPlace select_cpu_or_gpu;
-   if(Device::Allows(Backend::CUDA_MASK))
-   {
-     select_cpu_or_gpu = RAJA::ExecPlace::DEVICE;
-   }else
-   {
-     select_cpu_or_gpu = RAJA::ExecPlace::HOST;
-   }
-
-   RAJA::launch(select_cpu_or_gpu,
-   camp::make_tuple(RAJA::Resources<RAJA::HOST>(RAJA::Threads(NE)),
-                    RAJA::Resources<RAJA::DEVICE>(RAJA::Teams(NE),
+   RAJA::launch(RAJA::ExecPlace::DEVICE,
+   camp::make_tuple(RAJA::Resources<RAJA::DEVICE>(RAJA::Teams(NE),
                                                   RAJA::Threads(Q1D, Q1D))),
    [=] RAJA_HOST_DEVICE (RAJA::LaunchContext ctx) {
 
