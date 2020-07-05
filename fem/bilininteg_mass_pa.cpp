@@ -1125,8 +1125,8 @@ static void SmemPAMassApply3D(const int NE,
 #else
   using policy1_DEVICE = RAJA::LPolicy<RAJA::DEVICE, RAJA::loop_exec>;
 #endif
-  using outer0 = camp::list<policy1x_DEVICE>;
-  using outer1 = camp::list<policy1y_DEVICE>;
+  using outer0 = camp::list<policy1_HOST, policy1x_DEVICE>;
+  using outer1 = camp::list<policy1_HOST, policy1y_DEVICE>;
 
   using policy2_HOST = RAJA::LPolicy<RAJA::HOST, RAJA::loop_exec>;
 #ifdef RAJA_ENABLE_CUDA
@@ -1136,9 +1136,9 @@ static void SmemPAMassApply3D(const int NE,
 #else
   using policy2_DEVICE = RAJA::LPolicy<RAJA::DEVICE, RAJA::loop_exec>;
 #endif
-  using team0 = camp::list<policy2x_DEVICE>;
-  using team1 = camp::list<policy2y_DEVICE>;
-  using team2 = camp::list<policy2z_DEVICE>;
+  using team0 = camp::list<policy2_HOST, policy2x_DEVICE>;
+  using team1 = camp::list<policy2_HOST, policy2y_DEVICE>;
+  using team2 = camp::list<policy2_HOST, policy2z_DEVICE>;
 
 
 template<int T_D1D = 0, int T_Q1D = 0>
@@ -1163,9 +1163,22 @@ static void RajaSmemPAMassApply3D(const int NE,
    auto y = Reshape(y_.ReadWrite(), D1D, D1D, D1D, NE);
 
    //Run time option
-   RAJA::launch(RAJA::ExecPlace::DEVICE,
-   camp::make_tuple(RAJA::Resources<RAJA::DEVICE>(RAJA::Teams(NE),
-                                                  RAJA::Threads(Q1D, Q1D))),
+   RAJA::ExecPlace select_cpu_or_gpu;
+   if(Device::Allows(Backend::CUDA_MASK))
+   {
+     select_cpu_or_gpu = RAJA::ExecPlace::DEVICE;
+   }else
+   {
+     select_cpu_or_gpu = RAJA::ExecPlace::HOST;
+   }
+
+   using launch_policy =
+     RAJA::LaunchPolicy<RAJA::seq_launch_t, RAJA::cuda_launch_t<true>>;
+
+   RAJA::launch<launch_policy>(select_cpu_or_gpu,
+     RAJA::ResourceList{RAJA::Resources(RAJA::Threads(NE)),
+                        RAJA::Resources(RAJA::Teams(NE),RAJA::Threads(Q1D, Q1D)) },
+
    [=] RAJA_HOST_DEVICE (RAJA::LaunchContext ctx) {
 
    RAJA::loop<outer0>(ctx, RAJA::RangeSegment(0, NE), [&](int e) {
@@ -1187,8 +1200,8 @@ static void RajaSmemPAMassApply3D(const int NE,
       double (*QQD)[MQ1][MD1] = (double (*)[MQ1][MD1]) sm0;
       double (*QDD)[MD1][MD1] = (double (*)[MD1][MD1]) sm1;
 
-      RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, D1D), [&](int dy) { 
-         RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, D1D), [&](int dx) { 
+      RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, D1D), [&](int dy) {
+         RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, D1D), [&](int dx) {
 
             MFEM_UNROLL(MD1)
             for (int dz = 0; dz < D1D; ++dz)
@@ -1196,15 +1209,15 @@ static void RajaSmemPAMassApply3D(const int NE,
                X[dz][dy][dx] = x(dx,dy,dz,e);
             }
            });
-         
-        RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dx) {  
+
+        RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dx) {
             B[dx][dy] = b(dx,dy);
           });
         });
 
       MFEM_SYNC_THREAD;
-      RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, D1D), [&](int dy) {   
-         RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qx) {   
+      RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, D1D), [&](int dy) {
+         RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qx) {
 
             double u[D1D];
             MFEM_UNROLL(MD1)
@@ -1230,9 +1243,9 @@ static void RajaSmemPAMassApply3D(const int NE,
         });
 
       MFEM_SYNC_THREAD;
-        
+
       RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qy) {
-        RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qx) { 
+        RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qx) {
 
             double u[D1D];
             MFEM_UNROLL(MD1)
@@ -1258,8 +1271,8 @@ static void RajaSmemPAMassApply3D(const int NE,
         });
 
      MFEM_SYNC_THREAD;
-     RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qy) { 
-         RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qx) { 
+     RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qy) {
+         RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qx) {
 
             double u[Q1D];
             MFEM_UNROLL(MQ1)
@@ -1292,8 +1305,8 @@ static void RajaSmemPAMassApply3D(const int NE,
        });
       MFEM_SYNC_THREAD;
 
-      RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qy) { 
-          RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, D1D), [&](int dx) { 
+      RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qy) {
+          RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, D1D), [&](int dx) {
 
             double u[Q1D];
             MFEM_UNROLL(MQ1)
@@ -1319,8 +1332,8 @@ static void RajaSmemPAMassApply3D(const int NE,
         });
       MFEM_SYNC_THREAD;
 
-     RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, D1D), [&](int dy) { 
-           RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, D1D), [&](int dx) { 
+     RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, D1D), [&](int dy) {
+           RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, D1D), [&](int dx) {
 
             double u[Q1D];
             MFEM_UNROLL(MQ1)
@@ -1346,8 +1359,8 @@ static void RajaSmemPAMassApply3D(const int NE,
        });
       MFEM_SYNC_THREAD;
 
-      RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, D1D), [&](int dy) {  
-        RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, D1D), [&](int dx) {  
+      RAJA::loop<team1>(ctx, RAJA::RangeSegment(0, D1D), [&](int dy) {
+        RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, D1D), [&](int dx) {
             double u[D1D];
             MFEM_UNROLL(MD1)
             for (int dz = 0; dz < D1D; ++dz)
@@ -1373,7 +1386,7 @@ static void RajaSmemPAMassApply3D(const int NE,
 
      });//element loop
 
-   }); //launch 
+   }); //launch
 
 
 }
