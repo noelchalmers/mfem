@@ -1148,6 +1148,12 @@ using thread1 = RAJA::LoopPolicy<RAJA::loop_exec,
 using thread0 = RAJA::LoopPolicy<RAJA::loop_exec,
                                   RAJA::cuda_thread_x_loop>;
 
+#define s_B_(x, y) s_B[x + Q1D*y]
+#define s_Bt_(x, y) s_Bt[x + D1D*y]
+#define s_xy_(x, y) s_xy[x + M1D*y]
+  //#define X_(dx, dy, dz, e) X[dx + D1D*dy + D1D*D1D*dz + D1D*D1D*D1D*e]
+  //#define Y_(dx, dy, dz, e) Y[dx + D1D*dy + D1D*D1D*dz + D1D*D1D*D1D*e]
+  //#define D_(qx, qy, qz, e) D[qx + Q1D*qy + Q1D*Q1D*qz + Q1D*Q1D*Q1D*e]
 
 template<int T_D1D = 0, int T_Q1D = 0>
 static void RajaSmemPAMassApply3D(const int NE,
@@ -1163,15 +1169,22 @@ static void RajaSmemPAMassApply3D(const int NE,
    const int Q1D = T_Q1D ? T_Q1D : q1d;
    constexpr int M1Q = T_Q1D ? T_Q1D : MAX_Q1D;
    constexpr int M1D = T_D1D ? T_D1D : MAX_D1D;
+   //using ThreadExclusive_t = RAJA::ThreadExclusiveImpl<double,10, M1Q,M1Q,1>;
+   //RAJA::ThreadExclusiveImpl<double,10, M1Q,M1Q,1>;
+   //RAJA::PrivateMemoryImpl<double, 10, M1Q, M1Q,1>;
+   //ThreadExclusive_t::ExclusiveMem<int, 5> myArray;
+
    MFEM_VERIFY(D1D <= M1D, "");
    MFEM_VERIFY(Q1D <= M1Q, "");
-   auto b = Reshape(b_.Read(), Q1D, D1D);
+   //auto b = Reshape(b_.Read(), Q1D, D1D);
+   const double *B = b_.Read();
+   const double *Bt = bt_.Read();
+
    auto d = Reshape(d_.Read(), Q1D, Q1D, Q1D, NE);
    auto x = Reshape(x_.Read(), D1D, D1D, D1D, NE);
    auto y = Reshape(y_.ReadWrite(), D1D, D1D, D1D, NE);
 
    //Run time option
-#if 1
    RAJA::ExecPlace select_cpu_or_gpu;
    if(Device::Allows(Backend::CUDA_MASK))
    {
@@ -1184,6 +1197,147 @@ static void RajaSmemPAMassApply3D(const int NE,
    using launch_policy =
      RAJA::LaunchPolicy<RAJA::seq_launch_t, RAJA::cuda_launch_t<true>>;
 
+#if 1
+   //using ThreadExclusive_t = RAJA::ThreadExclusive<Q1D,Q1D,1>;
+
+   RAJA::launch<launch_policy>(select_cpu_or_gpu,
+                               RAJA::Resources(RAJA::Teams(NE),RAJA::Threads(Q1D, Q1D)),
+   [=] RAJA_HOST_DEVICE (RAJA::LaunchContext ctx) {
+
+      const int D1D = T_D1D ? T_D1D : d1d;
+      const int Q1D = T_Q1D ? T_Q1D : q1d;
+      constexpr int DQ1D = D1D*Q1D;
+      constexpr int M1D = D1D > Q1D ? D1D : Q1D;
+      constexpr int M2D = M1D*M1D;
+
+      //Element Index
+      RAJA::loop<team0>(ctx, RAJA::RangeSegment(0, NE), [&](int e) {
+
+      //Basis functions sampled at quadrature points in 1D
+      TEAM_SHARED double s_B[DQ1D];
+      TEAM_SHARED double s_Bt[DQ1D];
+
+      //Space for solution in the xy-plane
+      TEAM_SHARED double s_xy[M2D];
+
+      //Thread private memory
+      //ThreadExclusive_t::ExclusiveMem
+      RAJA::PrivateMemoryImpl<double, Q1D, M1Q, M1Q,1> r_z;
+      RAJA::PrivateMemoryImpl<double, Q1D, M1Q, M1Q,1> r_z2;
+
+      //Copy basis functions sampled at qpts
+      //to shared memory
+      RAJA::loop<thread1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int y) {
+          RAJA::loop<thread0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int x) {
+
+          const int id = (y * M1D) + x;
+          if (id < DQ1D) {
+            s_B[id]  = B[id];
+            s_Bt[id]  = Bt[id];
+          }
+
+          for (int qz = 0; qz < Q1D; ++qz) {
+            r_z(qz,x,y) = 0;
+          }
+          for (int dz = 0; dz < D1D; ++dz) {
+            r_z2(dz,x,y) = 0;
+          }
+
+        });
+     });
+
+
+      RAJA::loop<thread1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dy) {
+          RAJA::loop<thread0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dx) {
+
+          if ((dx < D1D) && (dy < D1D)) {
+            for (int dz = 0; dz < D1D; ++dz) {
+              const double s = x(dx, dy, dz, e);
+              // Calculate D -> Q in the Z axis
+              for (int qz = 0; qz < Q1D; ++qz) {
+                r_z(qz,dx,dy) += s * s_B_(qz, dz);
+              }
+            }
+          }
+         });
+      });
+
+      // For each xy plane
+      for (int qz = 0; qz < Q1D; ++qz) {
+
+        // Fill xy plane at given z position
+        RAJA::loop<thread1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dy) {
+          RAJA::loop<thread0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dx) {
+            if ((dx < D1D) && (dy < D1D)) {
+              s_xy_(dx, dy) = r_z(qz,dx,dy);
+            }
+            });
+        });
+
+        // Calculate Dxyz, xDyz, xyDz in plane
+        RAJA::loop<thread1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qy) {
+          RAJA::loop<thread0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qx) {
+
+            if ((qx < Q1D) && (qy < Q1D)) {
+              double s = 0;
+              for (int dy = 0; dy < D1D; ++dy) {
+                const double wy = s_B_(qy, dy);
+                for (int dx = 0; dx < D1D; ++dx) {
+                  const double wx = s_B_(qx, dx);
+                  s += wx * wy * s_xy_(dx, dy);
+                }
+              }
+
+              s *= d(qx, qy, qz, e);
+
+              for (int dz = 0; dz < D1D; ++dz) {
+                const double wz  = s_Bt_(dz, qz);
+                r_z2(dz,qx,qy) += wz * s;
+              }
+            }
+            });
+          });
+
+        ctx.teamSync();
+      }
+
+
+      // Iterate over xy planes to compute solution
+      for (int dz = 0; dz < D1D; ++dz) {
+
+        // Place xy plane in shared memory
+        RAJA::loop<thread1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qy) {
+          RAJA::loop<thread0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qx) {
+            if ((qx < Q1D) && (qy < Q1D)) {
+              s_xy_(qx, qy) = r_z2(dz,qx,qy);
+            }
+          });
+        });
+
+        // Finalize solution in xy plane
+        RAJA::loop<thread1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dy) {
+          RAJA::loop<thread0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dx) {
+            if ((dx < D1D) && (dy < D1D)) {
+              double solZ = 0;
+              for (int qy = 0; qy < Q1D; ++qy) {
+                const double wy = s_Bt_(dy, qy);
+                for (int qx = 0; qx < Q1D; ++qx) {
+                  const double wx = s_Bt_(dx, qx);
+                  solZ += wx * wy * s_xy_(qx, qy);
+                }
+              }
+              y(dx, dy, dz, e) += solZ;
+            }
+            });
+          });
+        ctx.teamSync();
+      }
+
+   }); //element loop
+
+ }); //launch
+
+#else
    RAJA::launch<launch_policy>(select_cpu_or_gpu,
                                RAJA::Resources(RAJA::Teams(NE),RAJA::Threads(Q1D, Q1D)),
    [=] RAJA_HOST_DEVICE (RAJA::LaunchContext ctx) {
