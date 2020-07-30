@@ -1165,6 +1165,9 @@ using thread1 = RAJA::LoopPolicy<RAJA::loop_exec,
 using thread0 = RAJA::LoopPolicy<RAJA::loop_exec,
                                   RAJA::cuda_thread_x_loop>;
 
+using thread01 = RAJA::LoopPolicy<RAJA::loop_exec,
+                                  RAJA::cuda_thread_xyz_direct<2>>;
+
 #define s_B_(x, y) s_B[x + Q1D*y]
 #define s_Bt_(x, y) s_Bt[x + D1D*y]
 #define s_xy_(x, y) s_xy[x + M1D*y]
@@ -1217,6 +1220,7 @@ static void RajaSmemPAMassApply3D(const int NE,
 #if 1
    //using ThreadExclusive_t = RAJA::ThreadExclusive<Q1D,Q1D,1>;
 
+   RAJA::RangeSegment TBounds(0, Q1D);
    RAJA::launch<launch_policy>(select_cpu_or_gpu,
                                RAJA::Resources(RAJA::Teams(NE),RAJA::Threads(Q1D, Q1D)),
    [=] RAJA_HOST_DEVICE (RAJA::LaunchContext ctx) {
@@ -1244,8 +1248,7 @@ static void RajaSmemPAMassApply3D(const int NE,
 
       //Copy basis functions sampled at qpts
       //to shared memory
-      RAJA::loop<thread1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int y) {
-          RAJA::loop<thread0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int x) {
+      RAJA::loop<thread01>(ctx, TBounds, TBounds, [&](int x, int y) {
 
           const int id = (y * M1D) + x;
           if (id < DQ1D) {
@@ -1259,13 +1262,10 @@ static void RajaSmemPAMassApply3D(const int NE,
           for (int dz = 0; dz < D1D; ++dz) {
             r_z2(dz,x,y) = 0;
           }
-
-        });
      });
 
 
-      RAJA::loop<thread1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dy) {
-          RAJA::loop<thread0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dx) {
+      RAJA::loop<thread01>(ctx, TBounds, TBounds, [&](int dx, int dy) {
 
           if ((dx < D1D) && (dy < D1D)) {
             for (int dz = 0; dz < D1D; ++dz) {
@@ -1276,24 +1276,20 @@ static void RajaSmemPAMassApply3D(const int NE,
               }
             }
           }
-         });
       });
 
       // For each xy plane
       for (int qz = 0; qz < Q1D; ++qz) {
 
         // Fill xy plane at given z position
-        RAJA::loop<thread1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dy) {
-          RAJA::loop<thread0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dx) {
+        RAJA::loop<thread01>(ctx, TBounds, TBounds, [&](int dx, int dy) {
             if ((dx < D1D) && (dy < D1D)) {
               s_xy_(dx, dy) = r_z(qz,dx,dy);
             }
-            });
         });
 
         // Calculate Dxyz, xDyz, xyDz in plane
-        RAJA::loop<thread1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qy) {
-          RAJA::loop<thread0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qx) {
+        RAJA::loop<thread01>(ctx, TBounds, TBounds, [&](int qx, int qy) {
 
             if ((qx < Q1D) && (qy < Q1D)) {
               double s = 0;
@@ -1312,7 +1308,6 @@ static void RajaSmemPAMassApply3D(const int NE,
                 r_z2(dz,qx,qy) += wz * s;
               }
             }
-            });
           });
 
         ctx.teamSync();
@@ -1323,17 +1318,14 @@ static void RajaSmemPAMassApply3D(const int NE,
       for (int dz = 0; dz < D1D; ++dz) {
 
         // Place xy plane in shared memory
-        RAJA::loop<thread1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qy) {
-          RAJA::loop<thread0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int qx) {
+         RAJA::loop<thread01>(ctx, TBounds, TBounds, [&](int qx, int qy) {
             if ((qx < Q1D) && (qy < Q1D)) {
               s_xy_(qx, qy) = r_z2(dz,qx,qy);
             }
           });
-        });
 
         // Finalize solution in xy plane
-        RAJA::loop<thread1>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dy) {
-          RAJA::loop<thread0>(ctx, RAJA::RangeSegment(0, Q1D), [&](int dx) {
+         RAJA::loop<thread01>(ctx, TBounds, TBounds, [&](int dx, int dy) {
             if ((dx < D1D) && (dy < D1D)) {
               double solZ = 0;
               for (int qy = 0; qy < Q1D; ++qy) {
@@ -1345,7 +1337,6 @@ static void RajaSmemPAMassApply3D(const int NE,
               }
               y(dx, dy, dz, e) += solZ;
             }
-            });
           });
         ctx.teamSync();
       }
