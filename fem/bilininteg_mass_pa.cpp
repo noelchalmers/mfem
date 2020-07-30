@@ -1196,7 +1196,6 @@ static void RajaSmemPAMassApply3D(const int NE,
 
    MFEM_VERIFY(D1D <= M1D, "");
    MFEM_VERIFY(Q1D <= M1Q, "");
-   //auto b = Reshape(b_.Read(), Q1D, D1D);
    const double *B = b_.Read();
    const double *Bt = bt_.Read();
 
@@ -1217,7 +1216,7 @@ static void RajaSmemPAMassApply3D(const int NE,
    using launch_policy =
      RAJA::LaunchPolicy<RAJA::seq_launch_t, RAJA::cuda_launch_t<true>>;
 
-#if 1
+#if 0
    //using ThreadExclusive_t = RAJA::ThreadExclusive<Q1D,Q1D,1>;
 
    RAJA::RangeSegment TBounds(0, Q1D);
@@ -1346,6 +1345,7 @@ static void RajaSmemPAMassApply3D(const int NE,
  }); //launch
 
 #else
+   auto b = Reshape(b_.Read(), Q1D, D1D);
    RAJA::launch<launch_policy>(select_cpu_or_gpu,
                                RAJA::Resources(RAJA::Teams(NE),RAJA::Threads(Q1D, Q1D)),
    [=] RAJA_HOST_DEVICE (RAJA::LaunchContext ctx) {
