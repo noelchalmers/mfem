@@ -1189,10 +1189,6 @@ static void RajaSmemPAMassApply3D(const int NE,
    const int Q1D = T_Q1D ? T_Q1D : q1d;
    constexpr int M1Q = T_Q1D ? T_Q1D : MAX_Q1D;
    constexpr int M1D = T_D1D ? T_D1D : MAX_D1D;
-   //using ThreadExclusive_t = RAJA::ThreadExclusiveImpl<double,10, M1Q,M1Q,1>;
-   //RAJA::ThreadExclusiveImpl<double,10, M1Q,M1Q,1>;
-   //RAJA::PrivateMemoryImpl<double, 10, M1Q, M1Q,1>;
-   //ThreadExclusive_t::ExclusiveMem<int, 5> myArray;
 
    MFEM_VERIFY(D1D <= M1D, "");
    MFEM_VERIFY(Q1D <= M1Q, "");
@@ -1242,14 +1238,12 @@ static void RajaSmemPAMassApply3D(const int NE,
 
       //Thread private memory
       //ThreadExclusive_t::ExclusiveMem
-      //RAJA::PrivateMemoryImpl<double, Q1D, M1Q, M1Q,1> r_z;
-      //RAJA::PrivateMemoryImpl<double, Q1D, M1Q, M1Q,1> r_z2;
-      double r_z[Q1D];
-      double r_z2[D1D];
+      RAJA::PrivateMemoryImpl<double, Q1D, M1Q, M1Q,1> r_z;
+      RAJA::PrivateMemoryImpl<double, Q1D, M1Q, M1Q,1> r_z2;
+      //double r_z[Q1D];
+      //double r_z2[D1D];
 
       RAJA::RangeSegment TBounds(0, M1D);
-      //for (int y = 0; y < M1D; ++y; @inner) {
-      //for (int x = 0; x < M1D; ++x; @inner) {
       RAJA::loop<thread1>(ctx, TBounds, [&](int y) {
           RAJA::loop<thread0>(ctx, TBounds, [&](int x) {
 
@@ -1261,10 +1255,10 @@ static void RajaSmemPAMassApply3D(const int NE,
         }
         // Initialize our Z axis
         for (int qz = 0; qz < Q1D; ++qz) {
-          r_z[qz] = 0;
+          r_z(qz,x,y) = 0;
         }
         for (int dz = 0; dz < D1D; ++dz) {
-          r_z2[dz] = 0;
+          r_z2(dz,x,y) = 0;
         }
       });
     });
@@ -1277,7 +1271,7 @@ static void RajaSmemPAMassApply3D(const int NE,
             const double s = x(dx, dy, dz, e);
             // Calculate D -> Q in the Z axis
             for (int qz = 0; qz < Q1D; ++qz) {
-              r_z[qz] += s * s_B_(qz, dz);
+              r_z(qz,dx,dy) += s * s_B_(qz, dz);
             }
           }
         }
@@ -1293,7 +1287,7 @@ static void RajaSmemPAMassApply3D(const int NE,
       RAJA::loop<thread1>(ctx, TBounds, [&](int dy) { 
          RAJA::loop<thread0>(ctx, TBounds, [&](int dx) {
           if ((dx < D1D) && (dy < D1D)) {
-            s_xy_(dx, dy) = r_z[qz];
+            s_xy_(dx, dy) = r_z(qz,dx,dy);
           }
         });
       });
@@ -1315,7 +1309,7 @@ static void RajaSmemPAMassApply3D(const int NE,
 
             for (int dz = 0; dz < D1D; ++dz) {
               const double wz  = s_Bt_(dz, qz);
-              r_z2[dz] += wz * s;
+              r_z2(dz,qx,qy) += wz * s;
             }
           }
        });
@@ -1330,7 +1324,7 @@ static void RajaSmemPAMassApply3D(const int NE,
       RAJA::loop<thread1>(ctx, TBounds, [&](int qy) { 
          RAJA::loop<thread0>(ctx, TBounds, [&](int qx) {
           if ((qx < Q1D) && (qy < Q1D)) {
-            s_xy_(qx, qy) = r_z2[dz];
+            s_xy_(qx, qy) = r_z2(dz,qx,qy);
           }
         });
     });
@@ -1591,6 +1585,8 @@ static void PAMassApply(const int dim,
                         Vector &Y)
 {
 
+  /*
+  //Error checking..
   printf("D1D %d Q1D %d \n", D1D, Q1D);
   Vector myY1(Y);
   Vector myY2(Y);
@@ -1602,6 +1598,7 @@ static void PAMassApply(const int dim,
    double error = myY2.Norml2();
    printf("error %g \n", error); 
    if(error > 1e-12) { exit(-1);}
+  */
   
 
 #ifdef MFEM_USE_OCCA
@@ -1648,12 +1645,11 @@ static void PAMassApply(const int dim,
 
       switch (id)
       {
-        // case 0x23: return RajaSmemPAMassApply3D<2,3>(NE,B,Bt,D,X,Y);
-        //case 0x24: return RajaSmemPAMassApply3D<2,4>(NE,B,Bt,D,X,Y);
-        //case 0x34: return RajaSmemPAMassApply3D<3,4>(NE,B,Bt,D,X,Y);
-        //case 0x36: return RajaSmemPAMassApply3D<3,6>(NE,B,Bt,D,X,Y);
+         case 0x23: return RajaSmemPAMassApply3D<2,3>(NE,B,Bt,D,X,Y);
+         case 0x24: return RajaSmemPAMassApply3D<2,4>(NE,B,Bt,D,X,Y);
+         case 0x34: return RajaSmemPAMassApply3D<3,4>(NE,B,Bt,D,X,Y);
+         case 0x36: return RajaSmemPAMassApply3D<3,6>(NE,B,Bt,D,X,Y);
          case 0x45: return RajaSmemPAMassApply3D<4,5>(NE,B,Bt,D,X,Y);
-           /*
          case 0x46: return RajaSmemPAMassApply3D<4,6>(NE,B,Bt,D,X,Y);
          case 0x48: return RajaSmemPAMassApply3D<4,8>(NE,B,Bt,D,X,Y);
          case 0x56: return RajaSmemPAMassApply3D<5,6>(NE,B,Bt,D,X,Y);
@@ -1663,7 +1659,6 @@ static void PAMassApply(const int dim,
          case 0x89: return RajaSmemPAMassApply3D<8,9>(NE,B,Bt,D,X,Y);
          case 0x9A: return RajaSmemPAMassApply3D<9,10>(NE,B,Bt,D,X,Y);
          default: mfem_error("RAJA case not supported \n");
-         */
       }
 
      }
