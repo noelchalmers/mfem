@@ -1187,11 +1187,11 @@ static void RajaSmemPAMassApply3D(const int NE,
 {
    const int D1D = T_D1D ? T_D1D : d1d;
    const int Q1D = T_Q1D ? T_Q1D : q1d;
-   constexpr int M1Q = T_Q1D ? T_Q1D : MAX_Q1D;
-   constexpr int M1D = T_D1D ? T_D1D : MAX_D1D;
+   //constexpr int M1Q = T_Q1D ? T_Q1D : MAX_Q1D;
+   //constexpr int M1D = T_D1D ? T_D1D : MAX_D1D;
 
-   MFEM_VERIFY(D1D <= M1D, "");
-   MFEM_VERIFY(Q1D <= M1Q, "");
+   //MFEM_VERIFY(D1D <= M1D, "");
+   //MFEM_VERIFY(Q1D <= M1Q, "");
    const double *B = b_.Read();
    const double *Bt = bt_.Read();
 
@@ -1215,9 +1215,10 @@ static void RajaSmemPAMassApply3D(const int NE,
 #if 1
    //using ThreadExclusive_t = RAJA::ThreadExclusive<Q1D,Q1D,1>;
 
-   RAJA::RangeSegment TBounds(0, Q1D);
+   constexpr int M1D = D1D > Q1D ? D1D : Q1D;
+   RAJA::RangeSegment TBounds(0, M1D);
    RAJA::launch<launch_policy>(select_cpu_or_gpu,
-                               RAJA::Resources(RAJA::Teams(NE),RAJA::Threads(Q1D, Q1D)),
+                               RAJA::Resources(RAJA::Teams(NE),RAJA::Threads(M1D, M1D)),
    [=] RAJA_HOST_DEVICE (RAJA::LaunchContext ctx) {
 
       const int D1D = T_D1D ? T_D1D : d1d;
