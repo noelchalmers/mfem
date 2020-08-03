@@ -1216,7 +1216,7 @@ static void RajaSmemPAMassApply3D(const int NE,
    using launch_policy =
      RAJA::LaunchPolicy<RAJA::seq_launch_t, RAJA::cuda_launch_t<true>>;
 
-#if 0
+#if 1
    //using ThreadExclusive_t = RAJA::ThreadExclusive<Q1D,Q1D,1>;
 
    RAJA::RangeSegment TBounds(0, Q1D);
@@ -1242,105 +1242,123 @@ static void RajaSmemPAMassApply3D(const int NE,
 
       //Thread private memory
       //ThreadExclusive_t::ExclusiveMem
-      RAJA::PrivateMemoryImpl<double, Q1D, M1Q, M1Q,1> r_z;
-      RAJA::PrivateMemoryImpl<double, Q1D, M1Q, M1Q,1> r_z2;
+      //RAJA::PrivateMemoryImpl<double, Q1D, M1Q, M1Q,1> r_z;
+      //RAJA::PrivateMemoryImpl<double, Q1D, M1Q, M1Q,1> r_z2;
+      double r_z[Q1D];
+      double r_z2[D1D];
 
-      //Copy basis functions sampled at qpts
-      //to shared memory
-      RAJA::loop<thread01>(ctx, TBounds, TBounds, [&](int x, int y) {
+      RAJA::RangeSegment TBounds(0, M1D);
+      //for (int y = 0; y < M1D; ++y; @inner) {
+      //for (int x = 0; x < M1D; ++x; @inner) {
+      RAJA::loop<thread1>(ctx, TBounds, [&](int y) {
+          RAJA::loop<thread0>(ctx, TBounds, [&](int x) {
 
-          const int id = (y * M1D) + x;
-          if (id < DQ1D) {
-            s_B[id]  = B[id];
-            s_Bt[id]  = Bt[id];
-          }
+        const int id = (y * M1D) + x;
+        // Fetch Q <--> D maps
+        if (id < DQ1D) {
+          s_B[id]  = B[id];
+          s_Bt[id]  = Bt[id];
+        }
+        // Initialize our Z axis
+        for (int qz = 0; qz < Q1D; ++qz) {
+          r_z[qz] = 0;
+        }
+        for (int dz = 0; dz < D1D; ++dz) {
+          r_z2[dz] = 0;
+        }
+      });
+    });
 
-          for (int qz = 0; qz < Q1D; ++qz) {
-            r_z(qz,x,y) = 0;
-          }
+     RAJA::loop<thread1>(ctx, TBounds, [&](int dy) {
+         RAJA::loop<thread0>(ctx, TBounds, [&](int dx) {
+     
+        if ((dx < D1D) && (dy < D1D)) {
           for (int dz = 0; dz < D1D; ++dz) {
-            r_z2(dz,x,y) = 0;
-          }
-     });
-
-
-      RAJA::loop<thread01>(ctx, TBounds, TBounds, [&](int dx, int dy) {
-
-          if ((dx < D1D) && (dy < D1D)) {
-            for (int dz = 0; dz < D1D; ++dz) {
-              const double s = x(dx, dy, dz, e);
-              // Calculate D -> Q in the Z axis
-              for (int qz = 0; qz < Q1D; ++qz) {
-                r_z(qz,dx,dy) += s * s_B_(qz, dz);
-              }
+            const double s = x(dx, dy, dz, e);
+            // Calculate D -> Q in the Z axis
+            for (int qz = 0; qz < Q1D; ++qz) {
+              r_z[qz] += s * s_B_(qz, dz);
             }
           }
+        }
+
+      });
+    });
+
+
+     // For each xy plane
+    for (int qz = 0; qz < Q1D; ++qz) {
+
+      // Fill xy plane at given z position
+      RAJA::loop<thread1>(ctx, TBounds, [&](int dy) { 
+         RAJA::loop<thread0>(ctx, TBounds, [&](int dx) {
+          if ((dx < D1D) && (dy < D1D)) {
+            s_xy_(dx, dy) = r_z[qz];
+          }
+        });
       });
 
-      // For each xy plane
-      for (int qz = 0; qz < Q1D; ++qz) {
-
-        // Fill xy plane at given z position
-        RAJA::loop<thread01>(ctx, TBounds, TBounds, [&](int dx, int dy) {
-            if ((dx < D1D) && (dy < D1D)) {
-              s_xy_(dx, dy) = r_z(qz,dx,dy);
+      // Calculate Dxyz, xDyz, xyDz in plane
+      RAJA::loop<thread1>(ctx, TBounds, [&](int qy) { 
+         RAJA::loop<thread0>(ctx, TBounds, [&](int qx) {
+          if ((qx < Q1D) && (qy < Q1D)) {
+            double s = 0;
+            for (int dy = 0; dy < D1D; ++dy) {
+              const double wy = s_B_(qy, dy);
+              for (int dx = 0; dx < D1D; ++dx) {
+                const double wx = s_B_(qx, dx);
+                s += wx * wy * s_xy_(dx, dy);
+              }
             }
+
+            s *= d(qx, qy, qz, e);
+
+            for (int dz = 0; dz < D1D; ++dz) {
+              const double wz  = s_Bt_(dz, qz);
+              r_z2[dz] += wz * s;
+            }
+          }
+       });
+      });
+      ctx.teamSync();
+    }
+
+    // Iterate over xy planes to compute solution
+    for (int dz = 0; dz < D1D; ++dz) {
+
+      // Place xy plane in @shared memory
+      RAJA::loop<thread1>(ctx, TBounds, [&](int qy) { 
+         RAJA::loop<thread0>(ctx, TBounds, [&](int qx) {
+          if ((qx < Q1D) && (qy < Q1D)) {
+            s_xy_(qx, qy) = r_z2[dz];
+          }
         });
+    });
 
-        // Calculate Dxyz, xDyz, xyDz in plane
-        RAJA::loop<thread01>(ctx, TBounds, TBounds, [&](int qx, int qy) {
 
-            if ((qx < Q1D) && (qy < Q1D)) {
-              double s = 0;
-              for (int dy = 0; dy < D1D; ++dy) {
-                const double wy = s_B_(qy, dy);
-                for (int dx = 0; dx < D1D; ++dx) {
-                  const double wx = s_B_(qx, dx);
-                  s += wx * wy * s_xy_(dx, dy);
-                }
-              }
-
-              s *= d(qx, qy, qz, e);
-
-              for (int dz = 0; dz < D1D; ++dz) {
-                const double wz  = s_Bt_(dz, qz);
-                r_z2(dz,qx,qy) += wz * s;
+      // Finalize solution in xy plane
+      RAJA::loop<thread1>(ctx, TBounds, [&](int dy) { 
+         RAJA::loop<thread0>(ctx, TBounds, [&](int dx) {
+          if ((dx < D1D) && (dy < D1D)) {
+            double solZ = 0;
+            for (int qy = 0; qy < Q1D; ++qy) {
+              const double wy = s_Bt_(dy, qy);
+              for (int qx = 0; qx < Q1D; ++qx) {
+                const double wx = s_Bt_(dx, qx);
+                solZ += wx * wy * s_xy_(qx, qy);
               }
             }
-          });
+            y(dx, dy, dz, e) += solZ;
+          }
 
-        ctx.teamSync();
-      }
+       });
+     });
 
+      ctx.teamSync();
+    }//dz loop
 
-      // Iterate over xy planes to compute solution
-      for (int dz = 0; dz < D1D; ++dz) {
-
-        // Place xy plane in shared memory
-         RAJA::loop<thread01>(ctx, TBounds, TBounds, [&](int qx, int qy) {
-            if ((qx < Q1D) && (qy < Q1D)) {
-              s_xy_(qx, qy) = r_z2(dz,qx,qy);
-            }
-          });
-
-        // Finalize solution in xy plane
-         RAJA::loop<thread01>(ctx, TBounds, TBounds, [&](int dx, int dy) {
-            if ((dx < D1D) && (dy < D1D)) {
-              double solZ = 0;
-              for (int qy = 0; qy < Q1D; ++qy) {
-                const double wy = s_Bt_(dy, qy);
-                for (int qx = 0; qx < Q1D; ++qx) {
-                  const double wx = s_Bt_(dx, qx);
-                  solZ += wx * wy * s_xy_(qx, qy);
-                }
-              }
-              y(dx, dy, dz, e) += solZ;
-            }
-          });
-        ctx.teamSync();
-      }
-
-   }); //element loop
+      
+  }); //element loop
 
  }); //launch
 
@@ -1572,6 +1590,20 @@ static void PAMassApply(const int dim,
                         const Vector &X,
                         Vector &Y)
 {
+
+  printf("D1D %d Q1D %d \n", D1D, Q1D);
+  Vector myY1(Y);
+  Vector myY2(Y);
+
+  RajaSmemPAMassApply3D<4,5>(NE,B,Bt,D,X,myY1);
+  SmemPAMassApply3D<4,5>(NE,B,Bt,D,X,myY2);
+
+   myY2 -= myY1;
+   double error = myY2.Norml2();
+   printf("error %g \n", error); 
+   if(error > 1e-12) { exit(-1);}
+  
+
 #ifdef MFEM_USE_OCCA
    if (DeviceCanUseOcca())
    {
@@ -1616,11 +1648,12 @@ static void PAMassApply(const int dim,
 
       switch (id)
       {
-         case 0x23: return RajaSmemPAMassApply3D<2,3>(NE,B,Bt,D,X,Y);
-         case 0x24: return RajaSmemPAMassApply3D<2,4>(NE,B,Bt,D,X,Y);
-         case 0x34: return RajaSmemPAMassApply3D<3,4>(NE,B,Bt,D,X,Y);
-         case 0x36: return RajaSmemPAMassApply3D<3,6>(NE,B,Bt,D,X,Y);
+        // case 0x23: return RajaSmemPAMassApply3D<2,3>(NE,B,Bt,D,X,Y);
+        //case 0x24: return RajaSmemPAMassApply3D<2,4>(NE,B,Bt,D,X,Y);
+        //case 0x34: return RajaSmemPAMassApply3D<3,4>(NE,B,Bt,D,X,Y);
+        //case 0x36: return RajaSmemPAMassApply3D<3,6>(NE,B,Bt,D,X,Y);
          case 0x45: return RajaSmemPAMassApply3D<4,5>(NE,B,Bt,D,X,Y);
+           /*
          case 0x46: return RajaSmemPAMassApply3D<4,6>(NE,B,Bt,D,X,Y);
          case 0x48: return RajaSmemPAMassApply3D<4,8>(NE,B,Bt,D,X,Y);
          case 0x56: return RajaSmemPAMassApply3D<5,6>(NE,B,Bt,D,X,Y);
@@ -1630,6 +1663,7 @@ static void PAMassApply(const int dim,
          case 0x89: return RajaSmemPAMassApply3D<8,9>(NE,B,Bt,D,X,Y);
          case 0x9A: return RajaSmemPAMassApply3D<9,10>(NE,B,Bt,D,X,Y);
          default: mfem_error("RAJA case not supported \n");
+         */
       }
 
      }
