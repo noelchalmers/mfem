@@ -1239,8 +1239,8 @@ static void RajaSmemPAMassApply3D(const int NE,
 
       //Thread private memory
       //ThreadExclusive_t::ExclusiveMem
-      RAJA::PrivateMemoryImpl<double, Q1D, M1Q, M1Q,1> r_z;
-      RAJA::PrivateMemoryImpl<double, Q1D, M1Q, M1Q,1> r_z2;
+      RAJA::PrivateMemoryImpl<double, Q1D, M1D, M1D,1> r_z;
+      RAJA::PrivateMemoryImpl<double, Q1D, M1D, M1D,1> r_z2;
       //double r_z[Q1D];
       //double r_z2[D1D];
 
