@@ -1216,7 +1216,6 @@ static void RajaSmemPAMassApply3D(const int NE,
    //using ThreadExclusive_t = RAJA::ThreadExclusive<Q1D,Q1D,1>;
 
    constexpr int M1D = D1D > Q1D ? D1D : Q1D;
-   RAJA::RangeSegment TBounds(0, M1D);
    RAJA::launch<launch_policy>(select_cpu_or_gpu,
                                RAJA::Resources(RAJA::Teams(NE),RAJA::Threads(M1D, M1D)),
    [=] RAJA_HOST_DEVICE (RAJA::LaunchContext ctx) {
@@ -1240,7 +1239,7 @@ static void RajaSmemPAMassApply3D(const int NE,
       //Thread private memory
       //ThreadExclusive_t::ExclusiveMem
       RAJA::PrivateMemoryImpl<double, Q1D, M1D, M1D,1> r_z;
-      RAJA::PrivateMemoryImpl<double, Q1D, M1D, M1D,1> r_z2;
+      RAJA::PrivateMemoryImpl<double, D1D, M1D, M1D,1> r_z2;
       //double r_z[Q1D];
       //double r_z2[D1D];
 
@@ -1263,6 +1262,7 @@ static void RajaSmemPAMassApply3D(const int NE,
         }
       });
     });
+    ctx.teamSync();
 
      RAJA::loop<thread1>(ctx, TBounds, [&](int dy) {
          RAJA::loop<thread0>(ctx, TBounds, [&](int dx) {
@@ -1292,6 +1292,7 @@ static void RajaSmemPAMassApply3D(const int NE,
           }
         });
       });
+      ctx.teamSync();
 
       // Calculate Dxyz, xDyz, xyDz in plane
       RAJA::loop<thread1>(ctx, TBounds, [&](int qy) { 
@@ -1329,7 +1330,7 @@ static void RajaSmemPAMassApply3D(const int NE,
           }
         });
     });
-
+      ctx.teamSync();
 
       // Finalize solution in xy plane
       RAJA::loop<thread1>(ctx, TBounds, [&](int dy) { 
