@@ -63,6 +63,7 @@ TEST_CASE("operatorjacobismoother")
             faform.Finalize();
             OperatorPtr A_fa;
             Vector B, X;
+            ess_tdof_list.HostRead();
             faform.FormLinearSystem(ess_tdof_list, x, b, A_fa, X, B);
             DSmoother fa_smoother((SparseMatrix&)(*A_fa));
 
@@ -125,6 +126,7 @@ TEST_CASE("operatorjacobifichera")
          faform.Finalize();
          OperatorPtr A_fa;
          Vector B, X;
+         ess_tdof_list.HostRead();
          faform.FormLinearSystem(ess_tdof_list, x, b, A_fa, X, B);
          DSmoother fa_smoother((SparseMatrix&)(*A_fa));
 

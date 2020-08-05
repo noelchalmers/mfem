@@ -48,13 +48,13 @@ void PAHcurlMassAssembleDiagonal3D(const int D1D,
                                    Vector &diag);
 
 template<int T_D1D = 0, int T_Q1D = 0>
-void SmemPAHcurlMassAssembleDiagonal3D(const int D1D,
-                                       const int Q1D,
-                                       const int NE,
+void SmemPAHcurlMassAssembleDiagonal3D(const int NE,
                                        const Array<double> &bo,
                                        const Array<double> &bc,
                                        const Vector &pa_data,
-                                       Vector &diag);
+                                       Vector &diag,
+                                       const int d1d = 0,
+                                       const int q1d = 0);
 
 void PAHcurlMassApply2D(const int D1D,
                         const int Q1D,
@@ -263,26 +263,33 @@ void VectorFEMassIntegrator::AssembleDiagonalPA(Vector& diag)
    {
       if (fetype == mfem::FiniteElement::CURL)
       {
-         if (diag.GetMemory().GetMemoryType() >= MemoryType::DEVICE && quad1D <= 6)
+         /*if (diag.GetMemory().GetMemoryType() >= MemoryType::DEVICE && quad1D <= 6)
          {
             const int ID = (dofs1D << 4 ) | quad1D;
             switch (ID)
             {
-               case 0x23: return SmemPAHcurlMassAssembleDiagonal3D<2,3>(dofs1D, quad1D, ne,
-                                                                           mapsO->B, mapsC->B, pa_data, diag);
-               case 0x34: return SmemPAHcurlMassAssembleDiagonal3D<3,4>(dofs1D, quad1D, ne,
-                                                                           mapsO->B, mapsC->B, pa_data, diag);
-               case 0x45: return SmemPAHcurlMassAssembleDiagonal3D<4,5>(dofs1D, quad1D, ne,
-                                                                           mapsO->B, mapsC->B, pa_data, diag);
-               case 0x56: return SmemPAHcurlMassAssembleDiagonal3D<5,6>(dofs1D, quad1D, ne,
-                                                                           mapsO->B, mapsC->B, pa_data, diag);
-               default: return PAHcurlMassAssembleDiagonal3D(dofs1D, quad1D, ne,
-                                                                mapsO->B, mapsC->B, pa_data, diag);
+               case 0x23: return
+                     SmemPAHcurlMassAssembleDiagonal3D<2,3>
+                     (ne, mapsO->B, mapsC->B, pa_data, diag, dofs1D, quad1D);
+               case 0x34: return
+                     SmemPAHcurlMassAssembleDiagonal3D<3,4>
+                     (ne, mapsO->B, mapsC->B, pa_data, diag, dofs1D, quad1D);
+               case 0x45: return
+                     SmemPAHcurlMassAssembleDiagonal3D<4,5>
+                     (ne, mapsO->B, mapsC->B, pa_data, diag, dofs1D, quad1D);
+               case 0x56: return
+                     SmemPAHcurlMassAssembleDiagonal3D<5,6>
+                     (ne, mapsO->B, mapsC->B, pa_data, diag, dofs1D, quad1D);
+               default: return
+                     PAHcurlMassAssembleDiagonal3D
+                     (dofs1D, quad1D, ne, mapsO->B, mapsC->B, pa_data, diag);
             }
          }
-         else
+         else*/
+         {
             PAHcurlMassAssembleDiagonal3D(dofs1D, quad1D, ne,
                                           mapsO->B, mapsC->B, pa_data, diag);
+         }
       }
       else if (fetype == mfem::FiniteElement::DIV)
       {

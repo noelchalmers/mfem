@@ -311,6 +311,7 @@ TEST_CASE("Hcurl/Hdiv pa_coeff",
                   assemblyform->Assemble();
                   assemblyform->Finalize();
                   OperatorPtr A_explicit;
+                  ess_tdof_list.HostRead();
                   assemblyform->FormSystemMatrix(ess_tdof_list, A_explicit);
 
                   Vector xin(fespace.GetTrueVSize());
@@ -538,6 +539,9 @@ TEST_CASE("Hcurl/Hdiv mixed pa_coeff",
                      y_assembly.SetSize(y_mat.Size());
                      y_pa.SetSize(y_mat.Size());
 
+                     A_explicit.HostReadI();
+                     A_explicit.HostReadJ();
+                     A_explicit.HostReadData();
                      A_explicit.BuildTranspose();
                      paform->MultTranspose(*xin, y_pa);
                      assemblyform->MultTranspose(*xin, y_assembly);

@@ -36,7 +36,7 @@ TEST_CASE("Quadrature Function Coefficients",
 
    const GeometricFactors *geom_facts =
       mesh.GetGeometricFactors(ir, GeometricFactors::COORDINATES);
-
+   geom_facts->X.HostRead();
    {
       int nelems = quadf_coeff.Size() / quadf_coeff.GetVDim() / ir.GetNPoints();
       int vdim = ir.GetNPoints();

@@ -157,20 +157,16 @@ TEST_CASE("Vector Mass Diagonal PA", "[PartialAssembly], [AssembleDiagonal]")
 {
    SECTION("2D")
    {
-      REQUIRE(test_vdiagpa<VectorMassIntegrator>(2,
-                                                 2) == Approx(0.0));
+      REQUIRE(test_vdiagpa<VectorMassIntegrator>(2,2) == Approx(0.0));
 
-      REQUIRE(test_vdiagpa<VectorMassIntegrator>(2,
-                                                 3) == Approx(0.0));
+      REQUIRE(test_vdiagpa<VectorMassIntegrator>(2,3) == Approx(0.0));
    }
 
    SECTION("3D")
    {
-      REQUIRE(test_vdiagpa<VectorMassIntegrator>(3,
-                                                 2) == Approx(0.0));
+      REQUIRE(test_vdiagpa<VectorMassIntegrator>(3,2) == Approx(0.0));
 
-      REQUIRE(test_vdiagpa<VectorMassIntegrator>(3,
-                                                 3) == Approx(0.0));
+      REQUIRE(test_vdiagpa<VectorMassIntegrator>(3,3) == Approx(0.0));
    }
 }
 
@@ -180,20 +176,16 @@ TEST_CASE("Vector Diffusion Diagonal PA",
    SECTION("2D")
    {
       REQUIRE(
-         test_vdiagpa<VectorDiffusionIntegrator>(2,
-                                                 2) == Approx(0.0));
+         test_vdiagpa<VectorDiffusionIntegrator>(2,2) == Approx(0.0));
 
-      REQUIRE(test_vdiagpa<VectorDiffusionIntegrator>(2,
-                                                      3) == Approx(0.0));
+      REQUIRE(test_vdiagpa<VectorDiffusionIntegrator>(2,3) == Approx(0.0));
    }
 
    SECTION("3D")
    {
-      REQUIRE(test_vdiagpa<VectorDiffusionIntegrator>(3,
-                                                      2) == Approx(0.0));
+      REQUIRE(test_vdiagpa<VectorDiffusionIntegrator>(3,2) == Approx(0.0));
 
-      REQUIRE(test_vdiagpa<VectorDiffusionIntegrator>(3,
-                                                      3) == Approx(0.0));
+      REQUIRE(test_vdiagpa<VectorDiffusionIntegrator>(3,3) == Approx(0.0));
    }
 }
 
@@ -228,9 +220,10 @@ TEST_CASE("Hcurl/Hdiv diagonal PA",
                      mesh = new Mesh(ne, ne, ne, Element::HEXAHEDRON, 1, 1.0, 1.0, 1.0);
                   }
 
-                  FiniteElementCollection* fec = (spaceType == 0) ?
-                                                 (FiniteElementCollection*) new ND_FECollection(order, dimension) :
-                                                 (FiniteElementCollection*) new RT_FECollection(order, dimension);
+                  FiniteElementCollection* fec =
+                     (spaceType == 0) ?
+                     (FiniteElementCollection*) new ND_FECollection(order, dimension) :
+                     (FiniteElementCollection*) new RT_FECollection(order, dimension);
 
                   FiniteElementSpace fespace(mesh, fec);
                   BilinearForm paform(&fespace);

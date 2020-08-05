@@ -366,56 +366,44 @@ void PAHcurlMassAssembleDiagonal3D(const int D1D,
    }); // end of element loop
 }
 
-template<int T_D1D, int T_Q1D>
-void SmemPAHcurlMassAssembleDiagonal3D(const int D1D,
-                                       const int Q1D,
-                                       const int NE,
+template<int T_D1D = 0, int T_Q1D = 0>
+void SmemPAHcurlMassAssembleDiagonal3D(const int NE,
                                        const Array<double> &bo,
                                        const Array<double> &bc,
                                        const Vector &pa_data,
-                                       Vector &diag)
+                                       Vector &diag,
+                                       const int d1d = 0,
+                                       const int q1d = 0)
 {
-   constexpr static int VDIM = 3;
-   constexpr static int MAX_D1D = HCURL_MAX_D1D;
-   constexpr static int MAX_Q1D = HCURL_MAX_Q1D;
+   constexpr int MAX_D1D = HCURL_MAX_D1D;
+   constexpr int MAX_Q1D = HCURL_MAX_Q1D;
+   constexpr int MD1 = T_D1D ? T_D1D : MAX_D1D;
+   constexpr int MQ1 = T_Q1D ? T_Q1D : MAX_Q1D;
 
-   constexpr int tD1D = T_D1D ? T_D1D : MAX_D1D;
-   constexpr int tQ1D = T_Q1D ? T_Q1D : MAX_Q1D;
+   const int D1D = T_D1D ? T_D1D : d1d;
+   const int Q1D = T_Q1D ? T_Q1D : q1d;
+   MFEM_VERIFY(D1D <= MD1, "Error: D1D > MAX_D1D");
+   MFEM_VERIFY(Q1D <= MQ1, "Error: Q1D > MAX_Q1D");
 
-   MFEM_VERIFY(D1D <= MAX_D1D, "Error: D1D > MAX_D1D");
-   MFEM_VERIFY(Q1D <= MAX_Q1D, "Error: Q1D > MAX_Q1D");
-
-   auto Bo = Reshape(bo.Read(), Q1D, D1D-1);
-   auto Bc = Reshape(bc.Read(), Q1D, D1D);
-   auto op = Reshape(pa_data.Read(), Q1D, Q1D, Q1D, 6, NE);
+   const auto Bo = Reshape(bo.Read(), Q1D, D1D-1);
+   const auto Bc = Reshape(bc.Read(), Q1D, D1D);
+   const auto op = Reshape(pa_data.Read(), Q1D, Q1D, Q1D, 6, NE);
    auto D = Reshape(diag.ReadWrite(), 3*(D1D-1)*D1D*D1D, NE);
 
    MFEM_FORALL_3D(e, NE, Q1D, Q1D, Q1D,
    {
-      MFEM_SHARED double sBG[2][tQ1D*MAX_D1D];  // TODO: Changing MAX_D1D to tD1D results in failing unit tests, although ex3p succeeds.
-      double (*sBo)[tQ1D] = (double (*)[tQ1D]) (sBG+0);
-      double (*sBc)[tQ1D] = (double (*)[tQ1D]) (sBG+1);
+      constexpr int VDIM = 3;
+      constexpr int MD1 = T_D1D ? T_D1D : MAX_D1D;
+      constexpr int MQ1 = T_Q1D ? T_Q1D : MAX_Q1D;
 
-      double op3[3];
-      MFEM_SHARED double sop[3][tQ1D][tQ1D];
+      const int D1D = T_D1D ? T_D1D : d1d;
+      const int Q1D = T_Q1D ? T_Q1D : q1d;
 
-      MFEM_FOREACH_THREAD(qx,x,Q1D)
-      {
-         MFEM_FOREACH_THREAD(qy,y,Q1D)
-         {
-            MFEM_FOREACH_THREAD(qz,z,Q1D)
-            {
-               op3[0] = op(qx,qy,qz,0,e);
-               op3[1] = op(qx,qy,qz,3,e);
-               op3[2] = op(qx,qy,qz,5,e);
-            }
-         }
-      }
+      MFEM_SHARED double sBB[2][MQ1*MD1];
+      double (*sBo)[MD1] = (double (*)[MD1]) (sBB+0);
+      double (*sBc)[MD1] = (double (*)[MD1]) (sBB+1);
 
-      const int tidx = MFEM_THREAD_ID(x);
-      const int tidy = MFEM_THREAD_ID(y);
       const int tidz = MFEM_THREAD_ID(z);
-
       if (tidz == 0)
       {
          MFEM_FOREACH_THREAD(d,y,D1D)
@@ -423,14 +411,37 @@ void SmemPAHcurlMassAssembleDiagonal3D(const int D1D,
             MFEM_FOREACH_THREAD(q,x,Q1D)
             {
                sBc[q][d] = Bc(q,d);
-               if (d < D1D-1)
-               {
-                  sBo[q][d] = Bo(q,d);
-               }
+               if (d < D1D-1) { sBo[q][d] = Bo(q,d); }
             }
          }
       }
       MFEM_SYNC_THREAD;
+
+      //MFEM_SHARED double op3[VDIM*MQ1*MQ1*MQ1];
+      //DeviceTensor<4,double> Op3(op3, VDIM, Q1D, Q1D, Q1D);
+
+      //MFEM_SHARED double sop[VDIM*MQ1*MQ1];
+      //DeviceTensor<3,double> sOP(sop, VDIM, Q1D, Q1D);
+
+      /*MFEM_FOREACH_THREAD(qx,x,Q1D)
+      {
+         MFEM_FOREACH_THREAD(qy,y,Q1D)
+         {
+            MFEM_FOREACH_THREAD(qz,z,Q1D)
+            {
+               Op3(0,qx,qy,qz) = op(qx,qy,qz,0,e);
+               Op3(1,qx,qy,qz) = op(qx,qy,qz,3,e);
+               Op3(2,qx,qy,qz) = op(qx,qy,qz,5,e);
+            }
+         }
+      }
+      MFEM_SYNC_THREAD;*/
+
+      //const int tidx = MFEM_THREAD_ID(x);
+      //const int tidy = MFEM_THREAD_ID(y);
+
+
+      MFEM_SHARED double dxyz[(MD1-1)*MD1*MD1];
 
       int osc = 0;
       for (int c = 0; c < VDIM; ++c)  // loop over x, y, z components
@@ -438,57 +449,48 @@ void SmemPAHcurlMassAssembleDiagonal3D(const int D1D,
          const int D1Dz = (c == 2) ? D1D - 1 : D1D;
          const int D1Dy = (c == 1) ? D1D - 1 : D1D;
          const int D1Dx = (c == 0) ? D1D - 1 : D1D;
+         const int opc = (c == 0) ? 0 : ((c == 1) ? 3 : 5);
+         DeviceTensor<3,double> Dxyz(dxyz, D1Dx, D1Dy, D1Dz);
 
-         double dxyz = 0.0;
-
-         for (int qz=0; qz < Q1D; ++qz)
+         for (int qz = 0; qz < Q1D; ++qz)
          {
-            if (tidz == qz)
-            {
-               for (int i=0; i<3; ++i)
-               {
-                  sop[i][tidx][tidy] = op3[i];
-               }
-            }
-
-            MFEM_SYNC_THREAD;
-
             MFEM_FOREACH_THREAD(dz,z,D1Dz)
             {
-               const double wz = ((c == 2) ? sBo[qz][dz] : sBc[qz][dz]);
-
+               MFEM_FOREACH_THREAD(dy,y,D1Dy)
+               {
+                  MFEM_FOREACH_THREAD(dx,x,D1Dx)
+                  {
+                     Dxyz(dx,dy,dz) = 0.0;
+                  }
+               }
+            }
+            MFEM_SYNC_THREAD;
+            MFEM_FOREACH_THREAD(dz,z,D1Dz)
+            {
+               const double wz = (c == 2) ? sBo[qz][dz] : sBc[qz][dz];
                MFEM_FOREACH_THREAD(dy,y,D1Dy)
                {
                   MFEM_FOREACH_THREAD(dx,x,D1Dx)
                   {
                      for (int qy = 0; qy < Q1D; ++qy)
                      {
-                        const double wy = ((c == 1) ? sBo[qy][dy] : sBc[qy][dy]);
+                        const double wy = (c == 1) ? sBo[qy][dy] : sBc[qy][dy];
 
                         for (int qx = 0; qx < Q1D; ++qx)
                         {
-                           const double wx = ((c == 0) ? sBo[qx][dx] : sBc[qx][dx]);
-                           dxyz += sop[c][qx][qy] * wx * wx * wy * wy * wz * wz;
+                           const double wx = (c == 0) ? sBo[qx][dx] : sBc[qx][dx];
+                           const double wxyz = wx*wx * wy*wy * wz*wz;
+                           Dxyz(dx,dy,dz) += wxyz * op(qx,qy,qz,opc,e);
+                           //Dxyz(dx,dy,dz) += sOP(c,qx,qy) * wx * wx * wy * wy * wz * wz;
+                           const int idx = dx + ((dy + (dz * D1Dy)) * D1Dx) + osc;
+                           D(idx, e) += wxyz * op(qx,qy,qz,opc,e);
                         }
                      }
                   }
                }
             }
-
             MFEM_SYNC_THREAD;
          }  // qz loop
-
-         MFEM_FOREACH_THREAD(dz,z,D1Dz)
-         {
-            MFEM_FOREACH_THREAD(dy,y,D1Dy)
-            {
-               MFEM_FOREACH_THREAD(dx,x,D1Dx)
-               {
-                  D(dx + ((dy + (dz * D1Dy)) * D1Dx) + osc, e) += dxyz;
-               }
-            }
-         }
-
          osc += D1Dx * D1Dy * D1Dz;
       }  // c loop
    }); // end of element loop
@@ -4546,35 +4548,35 @@ void MixedVectorWeakCurlIntegrator::AddMultPA(const Vector &x, Vector &y) const
    }
 }
 
-template void SmemPAHcurlMassAssembleDiagonal3D<2,3>(const int D1D,
-                                                     const int Q1D,
-                                                     const int NE,
+template void SmemPAHcurlMassAssembleDiagonal3D<2,3>(const int NE,
                                                      const Array<double> &bo,
                                                      const Array<double> &bc,
                                                      const Vector &pa_data,
-                                                     Vector &diag);
+                                                     Vector &diag,
+                                                     const int d1d = 0,
+                                                     const int q1d = 0);
 
-template void SmemPAHcurlMassAssembleDiagonal3D<3,4>(const int D1D,
-                                                     const int Q1D,
-                                                     const int NE,
+template void SmemPAHcurlMassAssembleDiagonal3D<3,4>(const int NE,
                                                      const Array<double> &bo,
                                                      const Array<double> &bc,
                                                      const Vector &pa_data,
-                                                     Vector &diag);
+                                                     Vector &diag,
+                                                     const int d1d = 0,
+                                                     const int q1d = 0);
 
-template void SmemPAHcurlMassAssembleDiagonal3D<4,5>(const int D1D,
-                                                     const int Q1D,
-                                                     const int NE,
+template void SmemPAHcurlMassAssembleDiagonal3D<4,5>(const int NE,
                                                      const Array<double> &bo,
                                                      const Array<double> &bc,
                                                      const Vector &pa_data,
-                                                     Vector &diag);
+                                                     Vector &diag,
+                                                     const int d1d = 0,
+                                                     const int q1d = 0);
 
-template void SmemPAHcurlMassAssembleDiagonal3D<5,6>(const int D1D,
-                                                     const int Q1D,
-                                                     const int NE,
+template void SmemPAHcurlMassAssembleDiagonal3D<5,6>(const int NE,
                                                      const Array<double> &bo,
                                                      const Array<double> &bc,
                                                      const Vector &pa_data,
-                                                     Vector &diag);
+                                                     Vector &diag,
+                                                     const int d1d = 0,
+                                                     const int q1d = 0);
 } // namespace mfem

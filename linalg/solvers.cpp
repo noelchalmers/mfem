@@ -2463,7 +2463,7 @@ void BlockILU::CreateBlockPattern(const SparseMatrix &A)
          }
       }
       C.Finalize(false);
-      double *CV = C.GetData();
+      double *CV = C.HostReadWriteData();// GetData();
       for (int i=0; i<C.NumNonZeroElems(); ++i)
       {
          CV[i] = sqrt(CV[i]);
