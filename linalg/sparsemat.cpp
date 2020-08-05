@@ -3454,13 +3454,13 @@ SparseMatrix * Add(double a, const SparseMatrix & A, double b,
    int * C_j;
    double * C_data;
 
-   const int *A_i = A.GetI();
-   const int *A_j = A.GetJ();
-   const double *A_data = A.GetData();
+   const int *A_i = A.HostReadI();// GetI();
+   const int *A_j = A.HostReadJ();// GetJ();
+   const double *A_data = A.HostReadData();// GetData();
 
-   const int *B_i = B.GetI();
-   const int *B_j = B.GetJ();
-   const double *B_data = B.GetData();
+   const int *B_i = B.HostReadI();// GetI();
+   const int *B_j = B.HostReadJ();// GetJ();
+   const double *B_data = B.HostReadData();// GetData();
 
    int * marker = new int[ncols];
    std::fill(marker, marker+ncols, -1);

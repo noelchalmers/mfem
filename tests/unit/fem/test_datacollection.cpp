@@ -118,6 +118,7 @@ TEST_CASE("Save and load from collections", "[DataCollection]")
          Vector u_diff(*u_new), v_diff(*v_new);
          u_diff -= *u;
          v_diff -= *v;
+         u_diff.HostReadWrite();
          REQUIRE(u_diff.Normlinf() < 1e-10);
          REQUIRE(v_diff.Normlinf() < 1e-10);
 

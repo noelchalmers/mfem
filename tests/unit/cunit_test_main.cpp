@@ -15,7 +15,11 @@
 
 int main(int argc, char *argv[])
 {
+#ifdef MFEM_USE_CUDA
    mfem::Device device("cuda");
+#else
+   mfem::Device device("debug");
+#endif
 
    // There must be exactly one instance.
    Catch::Session session;
@@ -29,17 +33,15 @@ int main(int argc, char *argv[])
 
    auto cfg = session.configData();
 
-#ifdef MFEM_USE_CUDA
    cfg.testsOrTags.push_back("[CUDA]");
-#endif
 
 #ifdef MFEM_USE_MPI
    // Exclude tests marked as Parallel in a serial run, even when compiled with
    // MPI. This is done because there is no MPI session initialized.
    cfg.testsOrTags.push_back("~[Parallel]");
-   session.useConfigData(cfg);
 #endif
 
+   session.useConfigData(cfg);
    int result = session.run();
 
    return result;

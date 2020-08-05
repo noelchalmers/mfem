@@ -311,6 +311,7 @@ TEST_CASE("Hcurl/Hdiv pa_coeff",
                   assemblyform->Assemble();
                   assemblyform->Finalize();
                   OperatorPtr A_explicit;
+                  ess_tdof_list.HostRead();
                   assemblyform->FormSystemMatrix(ess_tdof_list, A_explicit);
 
                   Vector xin(fespace.GetTrueVSize());
