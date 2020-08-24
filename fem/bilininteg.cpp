@@ -2174,10 +2174,11 @@ void VectorDiffusionIntegrator::AssembleElementMatrix(
 {
    const int dim = el.GetDim();
    const int dof = el.GetDof();
+   const int sdim = Trans.GetSpaceDim();
 
    // If vdim is not set, set it to the space dimension;
-   vdim = (vdim <= 0) ? Trans.GetSpaceDim() : vdim;
-   const bool square{dim == vdim};
+   vdim = (vdim <= 0) ? sdim : vdim;
+   const bool square{dim == sdim};
 
    if (VQ)
    {
@@ -2188,16 +2189,17 @@ void VectorDiffusionIntegrator::AssembleElementMatrix(
       mcoeff.SetSize(vdim);
    }
 
-   elmat.SetSize(vdim * dof);
    dshape.SetSize(dof, dim);
-   dshapedxt.SetSize(dof, vdim);
+   dshapedxt.SetSize(dof, sdim);
+
+   elmat.SetSize(vdim * dof);
    pelmat.SetSize(dof);
 
    const IntegrationRule *ir = IntRule;
    if (ir == NULL)
    {
       // integrand is rational function if det(J) is not constant
-      int order = 2 * Trans.OrderGrad(&el); // order of the numerator
+      const int order = 2 * Trans.OrderGrad(&el); // order of the numerator
       if (el.Space() == FunctionSpace::rQk)
       {
          ir = &RefinedIntRules.Get(el.GetGeomType(), order);
@@ -2216,9 +2218,9 @@ void VectorDiffusionIntegrator::AssembleElementMatrix(
       pelmat = 0.0;
 
       const IntegrationPoint &ip = ir->IntPoint(i);
-      el.CalcDShape (ip, dshape);
+      el.CalcDShape(ip, dshape);
 
-      Trans.SetIntPoint (&ip);
+      Trans.SetIntPoint(&ip);
       double w{Trans.Weight()};
       w = ip.weight / (square ? w : w*w*w);
       // AdjugateJacobian = / adj(J),         if J is square
