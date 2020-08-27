@@ -204,10 +204,12 @@ void MultABt(const int Aheight, const int Awidth, const int Bheight,
 /// the eigenvalues in the array @a lambda and the eigenvectors in the array @a
 /// vec (listed consecutively).
 template<int dim>
+MFEM_HOST_DEVICE
 void CalcEigenvalues(const double *data, double *lambda, double *vec);
 
 /// Return the i'th singular value of the matrix of size dim with given @a data.
 template<int dim>
+MFEM_HOST_DEVICE
 double CalcSingularvalue(const double *data, const int i);
 
 
