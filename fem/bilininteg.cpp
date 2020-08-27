@@ -2215,8 +2215,6 @@ void VectorDiffusionIntegrator::AssembleElementMatrix(
    for (int i = 0; i < ir -> GetNPoints(); i++)
    {
 
-      pelmat = 0.0;
-
       const IntegrationPoint &ip = ir->IntPoint(i);
       el.CalcDShape(ip, dshape);
 
@@ -2232,7 +2230,7 @@ void VectorDiffusionIntegrator::AssembleElementMatrix(
          VQ->Eval(vcoeff, Trans, ip);
          for (int k{0}; k < vdim; ++k)
          {
-            AddMult_a_AAt(w*vcoeff(k), dshapedxt, pelmat);
+            Mult_a_AAt(w*vcoeff(k), dshapedxt, pelmat);
             elmat.AddMatrix(pelmat, dof*k, dof*k);
          }
       }
@@ -2242,14 +2240,14 @@ void VectorDiffusionIntegrator::AssembleElementMatrix(
          for (int i{0}; i < vdim; ++i)
             for (int j{0}; j < vdim; ++j)
             {
-               AddMult_a_AAt(w*mcoeff(i,j), dshapedxt, pelmat);
+               Mult_a_AAt(w*mcoeff(i,j), dshapedxt, pelmat);
                elmat.AddMatrix(pelmat, dof*i, dof*j);
             }
       }
       else
       {
          if (Q) w *= Q->Eval(Trans, ip);
-         AddMult_a_AAt(w, dshapedxt, pelmat);
+         Mult_a_AAt(w, dshapedxt, pelmat);
          for (int k{0}; k < vdim; ++k)
             elmat.AddMatrix(pelmat, dof*k, dof*k);
       }
