@@ -2536,7 +2536,9 @@ private:
 
 public:
    VectorDiffusionIntegrator() {}
+   VectorDiffusionIntegrator(int vector_dimension) : vdim{vector_dimension} {}
    VectorDiffusionIntegrator(Coefficient &q) : Q{&q} {}
+   VectorDiffusionIntegrator(Coefficient &q, int vector_dimension) : Q{&q}, vdim{vector_dimension} {}
    VectorDiffusionIntegrator(VectorCoefficient& vq) : VQ{&vq}, vdim{vq.GetVDim()} {}
    VectorDiffusionIntegrator(MatrixCoefficient& mq) : MQ{&mq}, vdim{mq.GetVDim()} {}
 
